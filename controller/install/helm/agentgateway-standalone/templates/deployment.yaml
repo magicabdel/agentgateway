@@ -41,6 +41,10 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- $terminationGracePeriodSeconds := include "agentgateway-standalone.terminationGracePeriodSeconds" . }}
+      {{- if ne $terminationGracePeriodSeconds "" }}
+      terminationGracePeriodSeconds: {{ $terminationGracePeriodSeconds }}
+      {{- end }}
       {{- with .Values.extraInitContainers }}
       initContainers:
       {{- toYaml . | nindent 6 }}
@@ -53,16 +57,17 @@ spec:
         securityContext:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+        {{- $readinessPort := include "agentgateway-standalone.addrPort" (dict "root" . "key" "readinessAddr" "default" 15021) }}
         readinessProbe:
           httpGet:
             path: /healthz/ready
-            port: 15021
+            port: {{ $readinessPort }}
           periodSeconds: 10
         startupProbe:
           failureThreshold: 60
           httpGet:
             path: /healthz/ready
-            port: 15021
+            port: {{ $readinessPort }}
           periodSeconds: 1
           successThreshold: 1
           timeoutSeconds: 2
@@ -91,6 +96,14 @@ spec:
             secretKeyRef:
               name: {{ .Values.oidc.cookieSecretName | default (printf "%s-oidc" (include "agentgateway-standalone.fullname" .)) }}
               key: OIDC_COOKIE_SECRET
+        {{- end }}
+        {{- $extraEnvNames := list }}
+        {{- range .Values.extraEnv }}
+        {{- $extraEnvNames = append $extraEnvNames .name }}
+        {{- end }}
+        {{- if and (gt (int64 $terminationGracePeriodSeconds) 0) (not (has "TERMINATION_GRACE_PERIOD_SECONDS" $extraEnvNames)) }}
+        - name: TERMINATION_GRACE_PERIOD_SECONDS
+          value: {{ $terminationGracePeriodSeconds | quote }}
         {{- end }}
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}

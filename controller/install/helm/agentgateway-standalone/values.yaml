@@ -25,6 +25,9 @@ mode: readonly
 # -- Override the Kubernetes Deployment strategy for the agentgateway proxy.
 strategy: {}
 
+# -- The number of seconds that Kubernetes waits for the agentgateway proxy pod to shut down before it stops the pod. Must be a non-negative integer; if unset or empty, Kubernetes defaults to 30 seconds. When set to a value greater than 0, the chart also sets the 'TERMINATION_GRACE_PERIOD_SECONDS' environment variable, so that agentgateway waits up to this period, minus a few seconds, for open connections to finish instead of 5 seconds. A 'TERMINATION_GRACE_PERIOD_SECONDS' variable in 'extraEnv' takes precedence, and 'config.config.connectionTerminationDeadline' takes precedence over both.
+terminationGracePeriodSeconds:
+
 # The agentgateway image. Can also set a complete image reference string, for example: 'image: localhost:5000/agentgateway:dev'
 image:
   # -- The registry to pull the agentgateway proxy image from.
@@ -162,7 +165,7 @@ monitoring:
     #    See the [Prometheus metric_relabel_configs docs](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#metric_relabel_configs).
     metricRelabelings: []
 
-# -- The standalone agentgateway configuration to serve, in the same format as a local agentgateway config file. Changes outside the nested 'config' section, plus 'config.modelCatalog', are applied without restarting the pods. Changes to other nested 'config' settings restart the pods because agentgateway reads them only at startup. The chart manages the 'config.storage' and 'config.database' sections for you based on the 'mode' value, so do not set them here.
+# -- The standalone agentgateway configuration to serve, in the same format as a local agentgateway config file. Changes outside the nested 'config' section, plus 'config.modelCatalog', are applied without restarting the pods. Changes to other nested 'config' settings restart the pods because agentgateway reads them only at startup. The chart manages the 'config.storage' and 'config.database' sections for you based on the 'mode' value, so do not set them here. The readiness and startup probes use the port in 'config.config.readinessAddr' (15021 if unset), so that you can move it, such as when an Istio sidecar in the pod already uses 15021. The chart reads this port from 'config.config' only, not from the 'READINESS_ADDR' environment variable.
 config: {}
 
 # Postgres connection used by database mode.

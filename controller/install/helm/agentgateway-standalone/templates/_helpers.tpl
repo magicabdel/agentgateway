@@ -180,6 +180,35 @@ rendered configuration, plus config.modelCatalog, are reloaded without restartin
 {{ toYaml $config }}
 {{- end }}
 
+{{/*
+The TCP port of an agentgateway address setting in config.config, such as readinessAddr.
+Uses the given default when the setting is unset, "off", or a unix socket.
+Usage: include "agentgateway-standalone.addrPort" (dict "root" . "key" "readinessAddr" "default" 15021)
+*/}}
+{{- define "agentgateway-standalone.addrPort" -}}
+{{- $addr := dig "config" .key "" (.root.Values.config | default dict) | toString -}}
+{{- if and (not (hasPrefix "unix:" $addr)) (regexMatch ":[0-9]+$" $addr) -}}
+{{- regexFind "[0-9]+$" $addr -}}
+{{- else -}}
+{{- .default -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+terminationGracePeriodSeconds as a non-negative integer, or an empty string when it is unset or empty.
+Fails on any other value, so that a typo never renders 0 (which stops the pod at once).
+*/}}
+{{- define "agentgateway-standalone.terminationGracePeriodSeconds" -}}
+{{- $value := .Values.terminationGracePeriodSeconds -}}
+{{- if not (or (kindIs "invalid" $value) (and (kindIs "string" $value) (eq $value ""))) -}}
+{{- $isNumber := or (kindIs "int" $value) (kindIs "int64" $value) (kindIs "float64" $value) -}}
+{{- if not (and $isNumber (eq (float64 (int64 $value)) (float64 $value)) (ge (int64 $value) 0)) -}}
+{{- fail "terminationGracePeriodSeconds must be a non-negative integer" -}}
+{{- end -}}
+{{- int64 $value -}}
+{{- end -}}
+{{- end }}
+
 {{- define "agentgateway-standalone.validate" -}}
 {{- $mode := .Values.mode -}}
 {{- if not (has $mode (list "readonly" "database")) -}}

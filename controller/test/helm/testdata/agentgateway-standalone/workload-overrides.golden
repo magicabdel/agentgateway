@@ -100,6 +100,7 @@ spec:
         app.kubernetes.io/component: standalone
     spec:
       serviceAccountName: test-release
+      terminationGracePeriodSeconds: 120
       containers:
       - name: agentgateway
         image: "cr.agentgateway.dev/agentgateway:v0.0.0-dev"
@@ -130,6 +131,8 @@ spec:
         env:
         - name: RUST_BACKTRACE
           value: "1"
+        - name: TERMINATION_GRACE_PERIOD_SECONDS
+          value: "120"
         - name: LOG_FORMAT
           value: json
         - name: API_TOKEN

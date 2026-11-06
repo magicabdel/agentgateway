@@ -1,0 +1,145 @@
+---
+# Source: agentgateway-standalone/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release
+  namespace: default
+  labels:
+    helm.sh/chart: agentgateway-standalone-0.0.1
+    app.kubernetes.io/name: agentgateway-standalone
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: standalone
+    app.kubernetes.io/version: "0.0.0-dev"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: agentgateway-standalone/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-config
+  namespace: default
+  labels:
+    helm.sh/chart: agentgateway-standalone-0.0.1
+    app.kubernetes.io/name: agentgateway-standalone
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: standalone
+    app.kubernetes.io/version: "0.0.0-dev"
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.yaml: |
+
+    config:
+      adminAddr: 127.0.0.1:15100
+      readinessAddr: 0.0.0.0:15121
+      statsAddr: 0.0.0.0:15120
+      storage:
+        mode: file
+    gateways:
+      default:
+        port: 4000
+---
+# Source: agentgateway-standalone/templates/service-gateway.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release
+  namespace: default
+  labels:
+    helm.sh/chart: agentgateway-standalone-0.0.1
+    app.kubernetes.io/name: agentgateway-standalone
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: standalone
+    app.kubernetes.io/version: "0.0.0-dev"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: "LoadBalancer"
+  ports:
+  - name: "http"
+    protocol: "TCP"
+    port: 80
+    targetPort: 4000
+  selector:
+    app.kubernetes.io/name: agentgateway-standalone
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: standalone
+---
+# Source: agentgateway-standalone/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release
+  namespace: default
+  labels:
+    helm.sh/chart: agentgateway-standalone-0.0.1
+    app.kubernetes.io/name: agentgateway-standalone
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: standalone
+    app.kubernetes.io/version: "0.0.0-dev"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentgateway-standalone
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/component: standalone
+  template:
+    metadata:
+      annotations:
+        checksum/config: b21d1c96566a705a7db33df34deac9927f28e9c8528669001201f21ee3d5469e
+        prometheus.io/path: /metrics
+        prometheus.io/port: "15120"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: agentgateway-standalone
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/component: standalone
+    spec:
+      serviceAccountName: test-release
+      containers:
+      - name: agentgateway
+        image: "cr.agentgateway.dev/agentgateway:v0.0.0-dev"
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        readinessProbe:
+          httpGet:
+            path: /healthz/ready
+            port: 15121
+          periodSeconds: 10
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /healthz/ready
+            port: 15121
+          periodSeconds: 1
+          successThreshold: 1
+          timeoutSeconds: 2
+        args:
+        - -f
+        - /config/config.yaml
+        env:
+        - name: RUST_BACKTRACE
+          value: "1"
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      volumes:
+      - name: config
+        configMap:
+          name: test-release-config
+      - name: tmp
+        emptyDir: {}

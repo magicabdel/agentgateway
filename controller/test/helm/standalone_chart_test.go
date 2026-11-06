@@ -112,6 +112,7 @@ func TestStandaloneChartGoldenTemplate(t *testing.T) {
 		{
 			name: "workload-overrides",
 			valuesYAML: `revisionHistoryLimit: 3
+terminationGracePeriodSeconds: 120
 resources:
   requests:
     cpu: 250m
@@ -164,6 +165,22 @@ extraVolumeMounts:
   podMonitor:
     enabled: true
     interval: 30s
+`,
+		},
+		{
+			name: "moved-readiness-port",
+			valuesYAML: `podAnnotations:
+  prometheus.io/path: "/metrics"
+  prometheus.io/port: "15120"
+  prometheus.io/scrape: "true"
+config:
+  config:
+    adminAddr: 127.0.0.1:15100
+    statsAddr: 0.0.0.0:15120
+    readinessAddr: 0.0.0.0:15121
+  gateways:
+    default:
+      port: 4000
 `,
 		},
 	}
@@ -839,4 +856,84 @@ monitoring:
 `)
 	require.NoError(t, err, "helm template failed: %s", stderr)
 	require.NotContains(t, out, "prometheus.io:")
+}
+
+func TestStandaloneChartProbesFollowReadinessAddr(t *testing.T) {
+	t.Parallel()
+	out, stderr, err := renderStandaloneChart(t, `config:
+  config:
+    readinessAddr: 0.0.0.0:15121
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "readinessProbe:\n          httpGet:\n            path: /healthz/ready\n            port: 15121\n          periodSeconds: 10")
+	require.Contains(t, out, "startupProbe:\n          failureThreshold: 60\n          httpGet:\n            path: /healthz/ready\n            port: 15121\n          periodSeconds: 1")
+	require.NotContains(t, out, "port: 15021")
+
+	out, stderr, err = renderStandaloneChart(t, `config:
+  config:
+    readinessAddr: "[::]:15121"
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "readinessProbe:\n          httpGet:\n            path: /healthz/ready\n            port: 15121\n")
+	require.NotContains(t, out, "port: 15021")
+
+	out, stderr, err = renderStandaloneChart(t, `config:
+  config:
+    readinessAddr: "off"
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "readinessProbe:\n          httpGet:\n            path: /healthz/ready\n            port: 15021\n")
+
+	out, stderr, err = renderStandaloneChart(t, `config:
+  config:
+    readinessAddr: unix:/var/run/agentgateway/ready.sock
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "readinessProbe:\n          httpGet:\n            path: /healthz/ready\n            port: 15021\n")
+}
+
+func TestStandaloneChartTerminationGracePeriod(t *testing.T) {
+	t.Parallel()
+	out, stderr, err := renderStandaloneChart(t, "")
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.NotContains(t, out, "terminationGracePeriodSeconds:")
+	require.NotContains(t, out, "name: TERMINATION_GRACE_PERIOD_SECONDS")
+
+	out, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: 1830
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "\n      terminationGracePeriodSeconds: 1830\n")
+	require.Contains(t, out, "- name: TERMINATION_GRACE_PERIOD_SECONDS\n          value: \"1830\"")
+
+	out, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: 0
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "\n      terminationGracePeriodSeconds: 0\n")
+	require.NotContains(t, out, "name: TERMINATION_GRACE_PERIOD_SECONDS")
+
+	out, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: ""
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.NotContains(t, out, "terminationGracePeriodSeconds:")
+	require.NotContains(t, out, "name: TERMINATION_GRACE_PERIOD_SECONDS")
+
+	_, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: -1
+`)
+	require.Error(t, err)
+	require.Contains(t, stderr, "terminationGracePeriodSeconds must be a non-negative integer")
+
+	_, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: "1830"
+`)
+	require.Error(t, err)
+	require.Contains(t, stderr, "terminationGracePeriodSeconds must be a non-negative integer")
+
+	out, stderr, err = renderStandaloneChart(t, `terminationGracePeriodSeconds: 120
+extraEnv:
+- name: TERMINATION_GRACE_PERIOD_SECONDS
+  value: "90"
+`)
+	require.NoError(t, err, "helm template failed: %s", stderr)
+	require.Contains(t, out, "\n      terminationGracePeriodSeconds: 120\n")
+	require.Equal(t, 1, strings.Count(out, "name: TERMINATION_GRACE_PERIOD_SECONDS"))
+	require.Contains(t, out, "- name: TERMINATION_GRACE_PERIOD_SECONDS\n          value: \"90\"")
 }
